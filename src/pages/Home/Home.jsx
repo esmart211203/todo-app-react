@@ -1,34 +1,61 @@
-import { useState } from "react";
-
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { logout } from "../../services/authService";
+import { getTasksService , addTaskService, deleteTaskService, updateStatusService } from "../../services/todoService";
+import { getCategoryService, addCategoryService } from "../../services/categoryService";
 const Home = () => {
-  const user = { name: "Nguyễn Văn A" };
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      title: "Học React",
-      description: "Xem bài về useState và useEffect",
-      status: "Todo",
-      due_date: "2025-02-25",
-      category: "Học tập",
-      tags: ["Urgent", "Learning"],
-    },
-    {
-      id: 2,
-      title: "Làm bài tập React",
-      description: "Tạo một app đơn giản sử dụng useState và useEffect",
-      status: "Todo",
-      due_date: "2025-02-26",
-      category: "Học tập",
-      tags: ["Learning"],
-    },
-  ]);
+  const navigate = useNavigate();
+  const [user, setUser ] = useState({});
+  const [tasks, setTasks] = useState([]);
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+    const user = localStorage.getItem("user");
+    const parsedUser = JSON.parse(user);
 
-  const [categories, setCategories] = useState([
-    "Học tập",
-    "Công việc",
-    "Cá nhân",
-    "Sức khỏe",
-  ]);
+    setUser(JSON.parse(user));
+    
+    fetchTasks(parsedUser.userId);
+    fetchCategory();
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+    }
+  }, [navigate]);
+  const fetchTasks = async (userId) => {
+    try {
+      const response = await getTasksService(userId);    
+      console.log("task trả về", response);
+      // Đảm bảo response là một mảng
+      if (Array.isArray(response)) {
+        setTasks(response); // Gọi setTasks với mảng tasks
+      } else {
+        console.error("Dữ liệu trả về không phải là mảng:", response);
+      }
+    } catch (error) {
+      console.error("Lỗi khi lấy danh sách công việc:", error);
+    }
+  };
+  const fetchCategory = async () => {
+      try {
+          const response = await getCategoryService();
+          if (response) {  // Kiểm tra response trước khi set
+              setCategories(response.data);
+              console.log("category trả về", response);
+          } else {
+              console.log("Không có dữ liệu danh mục");
+          }
+      } catch (error) {
+          console.error("Lỗi khi get danh mục", error);
+      }
+  };
+
+  useEffect(() => {
+    console.log("Danh sách tasks đã cập nhật:", tasks);
+    console.log("Danh sách category đã cập nhật: >>>", categories);
+  }, [tasks]);
+
+
+
   const [tags, setTags] = useState(["Urgent", "Low Priority", "Home"]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedTag, setSelectedTag] = useState("");
@@ -56,27 +83,53 @@ const Home = () => {
         : [...prevTask.tags, tag],
     }));
   };
-
-  const addTask = (e) => {
-    e.preventDefault();
-    if (!newTask.title.trim()) return alert("NNhajap cái tiêu đề vào");
-    setTasks([...tasks, { ...newTask, id: Date.now() }]);
-    setNewTask({
-      title: "",
-      description: "",
-      status: "Todo",
-      due_date: "",
-      category: "",
-      tags: [],
-    });
+  const handleLogout = async () => {
+      await logout(); 
+      navigate('/login');
   };
 
-  const addCategory = () => {
-    if (newCategory.trim() && !categories.includes(newCategory)) {
-      setCategories([...categories, newCategory]);
-      setNewCategory("");
+  
+  const addTask = async (e) => {
+    e.preventDefault();
+    try {
+      if (!newTask.title.trim()) return alert("Nhập cái tiêu đề vào");
+  
+      const taskData = {
+        ...newTask,
+        id: Date.now(),
+        user_id: user.userId, 
+      };
+  
+      // Gọi API để lưu task
+      await addTaskService(taskData);
+  
+      // Tải lại trang sau khi thêm task thành công
+      window.location.reload();
+    } catch (error) {
+      alert("Lỗi khi thêm task: " + error.message);
     }
   };
+  
+  
+  
+
+  const addCategory = async () => {
+    if (!newCategory.trim()) return;
+
+    try {
+        const response = await addCategoryService(newCategory);
+        if (response) {
+            setCategories([...categories, response]); 
+            setNewCategory("");
+            alert("Thêm danh mục thành công");
+        } else {
+            console.log("Lỗi: Không thể thêm danh mục");
+        }
+    } catch (error) {
+        console.error("Lỗi khi thêm danh mục:", error);
+    }
+};
+
 
   const addTag = () => {
     if (newTag.trim() && !tags.includes(newTag)) {
@@ -85,23 +138,44 @@ const Home = () => {
     }
   };
 
-  const deleteTask = (id) => setTasks(tasks.filter((task) => task.id !== id));
-  const updateStatus = (id, newStatus) =>
-    setTasks(
-      tasks.map((task) =>
-        task.id === id ? { ...task, status: newStatus } : task
-      )
-    );
-
-  const filteredTasks = tasks.filter((task) => {
+  const deleteTask = async (id) => {
+    try {
+      alert("xoá thành công");
+      await deleteTaskService(id); // Gọi API để xoá task trên server
+      setTasks(tasks.filter((task) => task.id !== id)); // Cập nhật UI
+    } catch (error) {
+      console.error("Lỗi khi xoá task:", error);
+    }
+  };
+  const updateStatus = async (id, newStatus) => {
+    try {
+      const response = await updateStatusService(id, newStatus); // Gọi API cập nhật status
+  
+      if (response.error) {
+        console.error("Lỗi cập nhật trạng thái:", response.error);
+        return;
+      }
+  
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task.id === id ? { ...task, status: newStatus } : task
+        )
+      );
+    } catch (error) {
+      console.error("Lỗi khi gọi API cập nhật:", error);
+    }
+  };
+  
+  const filteredTasks = tasks.filter((tasks) => {
+    
     const matchesSearch =
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.description.toLowerCase().includes(searchQuery.toLowerCase());
+    tasks.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    tasks.description.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesCategory =
-      !selectedCategory || task.category === selectedCategory;
-    const matchesTag = !selectedTag || task.tags.includes(selectedTag);
-    const matchesStatus = !selectedStatus || task.status === selectedStatus;
+      !selectedCategory || tasks.category === selectedCategory;
+    const matchesTag = !selectedTag || tasks.tags.includes(selectedTag);
+    const matchesStatus = !selectedStatus || tasks.status === selectedStatus;
 
     return matchesSearch && matchesCategory && matchesTag && matchesStatus;
   });
@@ -117,8 +191,8 @@ const Home = () => {
             📌 Quản lý công việc
           </a>
           <div className="d-flex align-items-center">
-            <span className="text-white me-3">👋 Xin chào, {user.name}!</span>
-            <button className="btn btn-outline-light">🚪 Đăng xuất</button>
+            <span className="text-white me-3">👋 Xin chào, {user.username}!</span>
+            <button className="btn btn-outline-light" onClick={()=> handleLogout()}>🚪 Đăng xuất</button>
           </div>
         </div>
       </nav>
@@ -143,9 +217,9 @@ const Home = () => {
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
                 <option value="">Tất cả danh mục</option>
-                {categories.map((cat, index) => (
-                  <option key={index} value={cat}>
-                    {cat}
+                {Array.isArray(categories) && categories.map((category) => (
+                  <option key={category.id} value={category.name}>
+                    {category.name}
                   </option>
                 ))}
               </select>
@@ -179,20 +253,23 @@ const Home = () => {
 
           {/* Danh sách công việc */}
           <div className="list-group">
-            {filteredTasks.map((task) => (
-              <div key={task.id} className="list-group-item p-3 mb-2 rounded-3">
+            {filteredTasks.map((tasks) => (
+              <div key={tasks.id} className="list-group-item p-3 mb-2 rounded-3">
                 <div className="d-flex justify-content-between align-items-start">
                   <div>
-                    <h5 className="mb-1 text-primary">{task.title}</h5>
-                    <p className="mb-1 text-muted">{task.description}</p>
+                    <h5 className="mb-1 text-primary">{tasks.title}</h5>
+                    <p className="mb-1 text-muted">{tasks.description}</p>
                     <small className="text-muted">
-                      🕒 {task.due_date || "Không có hạn"}
+                      🕒 {tasks.due_date || "Không có hạn"}
                     </small>
                     <div className="mt-1">
                       <span className="badge bg-secondary me-1">
-                        {task.status}
+                        {tasks.status}
                       </span>
-                      {task.tags.map((tag, idx) => (
+                      <span className="badge bg-secondary me-1">
+                        Danh mục: {tasks.category}
+                      </span>
+                      {Array.isArray(tasks) && tasks.tags.map((tag, idx) => (
                         <span
                           key={idx}
                           className="badge bg-light text-dark me-1"
@@ -205,22 +282,16 @@ const Home = () => {
                   <div className="d-flex gap-2">
                     <button
                       className="btn btn-sm btn-outline-primary"
-                      onClick={() => updateStatus(task.id, "In Progress")}
+                      onClick={() => updateStatus(tasks.id, "in Progress")}
                     >
                       Đang làm
                     </button>
                     <button
                       className="btn btn-sm btn-outline-success"
-                      onClick={() => updateStatus(task.id, "Done")}
-                    >
-                      Hoàn thành
+                      onClick={() => updateStatus(tasks.id, "Done")}
+                    >Hoàn thành
                     </button>
-                    <button
-                      className="btn btn-sm btn-outline-danger"
-                      onClick={() => deleteTask(task.id)}
-                    >
-                      Xóa
-                    </button>
+                    <button className="btn btn-sm btn-outline-danger" onClick={() => deleteTask(tasks.id)}>Xóa</button>
                   </div>
                 </div>
               </div>
@@ -319,9 +390,9 @@ const Home = () => {
                 required
               >
                 <option value="">Chọn danh mục</option>
-                {categories.map((cat, index) => (
-                  <option key={index} value={cat}>
-                    {cat}
+                {Array.isArray(categories) && categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
                   </option>
                 ))}
               </select>
